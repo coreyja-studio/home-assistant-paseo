@@ -4,14 +4,18 @@ A local-push Home Assistant integration for watching a [Paseo](https://github.co
 
 ## What it exposes
 
-- Fleet counts for open, working, idle, finished, attention, and failed agents
+- Fleet counts for open sessions, active turns, idle, finished, attention, and failed agents
 - A fleet-state sensor: `quiet`, `idle`, `working`, `attention`, or `error`
 - Connection, attention, and failure binary sensors
-- Per-provider open and working counts
+- Per-provider open-session and active-turn counts
 - Provider quota-window sensors with remaining percentage and reset time
 - A safe event entity for agent started, finished, needs-input, and failed events
 
 The integration connects directly to Paseo's WebSocket API and receives live updates. Usage data is refreshed every five minutes.
+
+An **active turn** means Paseo is currently receiving output from an agent. It intentionally
+returns to zero while every open agent is waiting for input or has finished, even when those
+sessions remain open.
 
 ## Installation
 

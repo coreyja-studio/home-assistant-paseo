@@ -109,7 +109,7 @@ class PaseoProviderCountSensor(PaseoProviderEntity, SensorEntity):
         """Initialize a provider count sensor."""
         super().__init__(coordinator, provider_id, metric)
         self.metric = metric
-        self._attr_name = f"{metric.title()} agents"
+        self._attr_name = "Active turns" if metric == "working" else "Open agents"
         self._attr_icon = "mdi:robot-industrial" if metric == "working" else "mdi:robot"
 
     @property
