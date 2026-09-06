@@ -31,7 +31,14 @@
       "idle_agents": { "name": "Idle agents" },
       "finished_agents": { "name": "Finished agents" },
       "attention_agents": { "name": "Agents needing attention" },
-      "failed_agents": { "name": "Failed agents" }
+      "failed_agents": { "name": "Failed agents" },
+      "context_tokens": { "name": "Context tokens" },
+      "context_capacity": { "name": "Context capacity" },
+      "context_utilization": { "name": "Context utilization" },
+      "latest_input_tokens": { "name": "Latest-turn input" },
+      "latest_cached_input_tokens": { "name": "Latest-turn cached input" },
+      "latest_output_tokens": { "name": "Latest-turn output" },
+      "reported_session_cost": { "name": "Reported session cost" }
     },
     "binary_sensor": {
       "connected": { "name": "Connected" },

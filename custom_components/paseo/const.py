@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "paseo"
-INTEGRATION_VERSION = "0.1.1"
+INTEGRATION_VERSION = "0.2.0"
 
 CONF_URL = "url"
 CONF_PASSWORD = "password"
