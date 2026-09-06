@@ -27,7 +27,7 @@
     "sensor": {
       "fleet_state": { "name": "Fleet state" },
       "open_agents": { "name": "Open agents" },
-      "working_agents": { "name": "Working agents" },
+      "working_agents": { "name": "Active turns" },
       "idle_agents": { "name": "Idle agents" },
       "finished_agents": { "name": "Finished agents" },
       "attention_agents": { "name": "Agents needing attention" },
