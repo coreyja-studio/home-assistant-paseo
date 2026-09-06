@@ -55,6 +55,14 @@ async def test_client_bootstraps_and_receives_safe_push_updates() -> None:
                                         "requiresAttention": False,
                                         "title": "Private title",
                                         "cwd": "/private/path",
+                                        "lastUsage": {
+                                            "inputTokens": 120,
+                                            "cachedInputTokens": 80,
+                                            "outputTokens": 40,
+                                            "totalCostUsd": 0.125,
+                                            "contextWindowMaxTokens": 200_000,
+                                            "contextWindowUsedTokens": 50_000,
+                                        },
                                     },
                                     "project": {},
                                 }
@@ -125,6 +133,9 @@ async def test_client_bootstraps_and_receives_safe_push_updates() -> None:
         assert len(snapshot.open_agents) == 1
         assert snapshot.usage["claude"].windows[0].remaining_percent == 68
         assert not hasattr(snapshot.agents["agent-1"], "title")
+        assert snapshot.token_metrics().context_tokens == 50_000
+        assert snapshot.token_metrics().context_utilization == 25.0
+        assert snapshot.token_metrics().reported_session_cost == 0.125
 
         websocket = await connected_websocket
         await websocket.send_json(

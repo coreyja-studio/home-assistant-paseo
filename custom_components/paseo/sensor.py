@@ -22,21 +22,118 @@ class PaseoSensorDefinition:
 
     key: str
     icon: str
-    value: Callable[[PaseoSnapshot], str | int]
+    value: Callable[[PaseoSnapshot], str | int | float | None]
+    unit: str | None = None
+    precision: int | None = None
 
 
 HOST_SENSORS = (
     PaseoSensorDefinition("fleet_state", "mdi:robot-industrial", lambda data: data.fleet_state),
-    PaseoSensorDefinition("open_agents", "mdi:robot", lambda data: len(data.open_agents)),
     PaseoSensorDefinition(
-        "working_agents", "mdi:robot-industrial", lambda data: data.working_count
+        "open_agents", "mdi:robot", lambda data: len(data.open_agents), "agents"
     ),
-    PaseoSensorDefinition("idle_agents", "mdi:robot-outline", lambda data: data.idle_count),
-    PaseoSensorDefinition("finished_agents", "mdi:robot-happy", lambda data: data.finished_count),
     PaseoSensorDefinition(
-        "attention_agents", "mdi:robot-confused", lambda data: data.attention_count
+        "working_agents",
+        "mdi:robot-industrial",
+        lambda data: data.working_count,
+        "agents",
     ),
-    PaseoSensorDefinition("failed_agents", "mdi:robot-dead", lambda data: data.failed_count),
+    PaseoSensorDefinition(
+        "idle_agents", "mdi:robot-outline", lambda data: data.idle_count, "agents"
+    ),
+    PaseoSensorDefinition(
+        "finished_agents", "mdi:robot-happy", lambda data: data.finished_count, "agents"
+    ),
+    PaseoSensorDefinition(
+        "attention_agents",
+        "mdi:robot-confused",
+        lambda data: data.attention_count,
+        "agents",
+    ),
+    PaseoSensorDefinition(
+        "failed_agents", "mdi:robot-dead", lambda data: data.failed_count, "agents"
+    ),
+    PaseoSensorDefinition(
+        "context_tokens",
+        "mdi:brain",
+        lambda data: data.token_metrics().context_tokens,
+        "tokens",
+    ),
+    PaseoSensorDefinition(
+        "context_capacity",
+        "mdi:brain-freeze",
+        lambda data: data.token_metrics().context_capacity,
+        "tokens",
+    ),
+    PaseoSensorDefinition(
+        "context_utilization",
+        "mdi:gauge",
+        lambda data: data.token_metrics().context_utilization,
+        "%",
+        1,
+    ),
+    PaseoSensorDefinition(
+        "latest_input_tokens",
+        "mdi:arrow-collapse-down",
+        lambda data: data.token_metrics().latest_input_tokens,
+        "tokens",
+    ),
+    PaseoSensorDefinition(
+        "latest_cached_input_tokens",
+        "mdi:database-clock",
+        lambda data: data.token_metrics().latest_cached_input_tokens,
+        "tokens",
+    ),
+    PaseoSensorDefinition(
+        "latest_output_tokens",
+        "mdi:arrow-collapse-up",
+        lambda data: data.token_metrics().latest_output_tokens,
+        "tokens",
+    ),
+    PaseoSensorDefinition(
+        "reported_session_cost",
+        "mdi:currency-usd",
+        lambda data: data.token_metrics().reported_session_cost,
+        "USD",
+        2,
+    ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PaseoUsageSensorDefinition:
+    """Definition of a provider usage snapshot sensor."""
+
+    key: str
+    name: str
+    icon: str
+    unit: str
+    precision: int | None = None
+
+
+PROVIDER_USAGE_SENSORS = (
+    PaseoUsageSensorDefinition("context_tokens", "Context tokens", "mdi:brain", "tokens"),
+    PaseoUsageSensorDefinition(
+        "context_capacity", "Context capacity", "mdi:brain-freeze", "tokens"
+    ),
+    PaseoUsageSensorDefinition(
+        "context_utilization", "Context utilization", "mdi:gauge", "%", 1
+    ),
+    PaseoUsageSensorDefinition(
+        "latest_input_tokens", "Latest-turn input", "mdi:arrow-collapse-down", "tokens"
+    ),
+    PaseoUsageSensorDefinition(
+        "latest_cached_input_tokens",
+        "Latest-turn cached input",
+        "mdi:database-clock",
+        "tokens",
+    ),
+    PaseoUsageSensorDefinition(
+        "latest_output_tokens", "Latest-turn output", "mdi:arrow-collapse-up", "tokens"
+    ),
+    PaseoUsageSensorDefinition(
+        "reported_session_cost", "Reported session cost", "mdi:currency-usd", "USD", 2
+    ),
 )
 
 
@@ -59,6 +156,19 @@ async def async_setup_entry(
                 if unique_key not in seen:
                     seen.add(unique_key)
                     entities.append(PaseoProviderCountSensor(coordinator, provider_id, metric))
+            if any(
+                agent.last_usage is not None
+                for agent in coordinator.data.provider_agents(provider_id)
+            ):
+                for definition in PROVIDER_USAGE_SENSORS:
+                    unique_key = f"usage:{provider_id}:{definition.key}"
+                    if unique_key not in seen:
+                        seen.add(unique_key)
+                        entities.append(
+                            PaseoProviderUsageSensor(
+                                coordinator, provider_id, definition
+                            )
+                        )
             usage = coordinator.data.usage.get(provider_id)
             if usage is None:
                 continue
@@ -87,12 +197,13 @@ class PaseoHostSensor(PaseoEntity, SensorEntity):
         self._definition = definition
         self._attr_translation_key = definition.key
         self._attr_icon = definition.icon
-        if definition.key != "fleet_state":
-            self._attr_native_unit_of_measurement = "agents"
+        if definition.unit is not None:
+            self._attr_native_unit_of_measurement = definition.unit
             self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_suggested_display_precision = definition.precision
 
     @property
-    def native_value(self) -> str | int:
+    def native_value(self) -> str | int | float | None:
         """Return the current value."""
         return self._definition.value(self.coordinator.data)
 
@@ -119,6 +230,32 @@ class PaseoProviderCountSensor(PaseoProviderEntity, SensorEntity):
         if self.metric == "working":
             return sum(agent.status in {"running", "initializing"} for agent in agents)
         return len(agents)
+
+
+class PaseoProviderUsageSensor(PaseoProviderEntity, SensorEntity):
+    """A provider's current numeric usage snapshot."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: PaseoCoordinator,
+        provider_id: str,
+        definition: PaseoUsageSensorDefinition,
+    ) -> None:
+        """Initialize a provider usage sensor."""
+        super().__init__(coordinator, provider_id, f"usage_{definition.key}")
+        self._definition = definition
+        self._attr_name = definition.name
+        self._attr_icon = definition.icon
+        self._attr_native_unit_of_measurement = definition.unit
+        self._attr_suggested_display_precision = definition.precision
+
+    @property
+    def native_value(self) -> int | float | None:
+        """Return the current provider usage value."""
+        metrics = self.coordinator.data.token_metrics(self.provider_id)
+        return getattr(metrics, self._definition.key)
 
 
 class PaseoQuotaSensor(PaseoProviderEntity, SensorEntity):

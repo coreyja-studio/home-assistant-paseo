@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -21,6 +22,34 @@ class PaseoConnectionError(PaseoError):
 
 
 @dataclass(frozen=True, slots=True)
+class PaseoAgentUsage:
+    """Privacy-safe numeric usage snapshot for one agent."""
+
+    input_tokens: int | None
+    cached_input_tokens: int | None
+    output_tokens: int | None
+    total_cost_usd: float | None
+    context_window_max_tokens: int | None
+    context_window_used_tokens: int | None
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> PaseoAgentUsage:
+        """Create a usage snapshot from Paseo's numeric wire fields."""
+        return cls(
+            input_tokens=_optional_token_count(payload.get("inputTokens")),
+            cached_input_tokens=_optional_token_count(payload.get("cachedInputTokens")),
+            output_tokens=_optional_token_count(payload.get("outputTokens")),
+            total_cost_usd=_optional_number(payload.get("totalCostUsd")),
+            context_window_max_tokens=_optional_token_count(
+                payload.get("contextWindowMaxTokens")
+            ),
+            context_window_used_tokens=_optional_token_count(
+                payload.get("contextWindowUsedTokens")
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PaseoAgent:
     """Safe subset of an agent record."""
 
@@ -30,10 +59,12 @@ class PaseoAgent:
     requires_attention: bool
     attention_reason: str | None
     attention_timestamp: str | None
+    last_usage: PaseoAgentUsage | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> PaseoAgent:
         """Create an agent while discarding all potentially sensitive fields."""
+        raw_usage = payload.get("lastUsage")
         return cls(
             agent_id=str(payload.get("id", "")),
             provider_id=_optional_string(payload.get("provider") or payload.get("providerId"))
@@ -42,6 +73,9 @@ class PaseoAgent:
             requires_attention=bool(payload.get("requiresAttention", False)),
             attention_reason=_optional_string(payload.get("attentionReason")),
             attention_timestamp=_optional_string(payload.get("attentionTimestamp")),
+            last_usage=(
+                PaseoAgentUsage.from_payload(raw_usage) if isinstance(raw_usage, dict) else None
+            ),
         )
 
 
@@ -115,6 +149,19 @@ class PaseoActivity:
     provider_id: str
     agent_id: str
     timestamp: str
+
+
+@dataclass(frozen=True, slots=True)
+class PaseoTokenMetrics:
+    """Aggregated usage snapshots for a fleet or provider."""
+
+    context_tokens: int | None
+    context_capacity: int | None
+    context_utilization: float | None
+    latest_input_tokens: int | None
+    latest_cached_input_tokens: int | None
+    latest_output_tokens: int | None
+    reported_session_cost: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +240,36 @@ class PaseoSnapshot:
             return self.usage[provider_id].display_name
         return provider_id.replace("-", " ").replace("_", " ").title()
 
+    def token_metrics(self, provider_id: str | None = None) -> PaseoTokenMetrics:
+        """Aggregate numeric snapshots without claiming lifetime token consumption."""
+        agents = (
+            self.open_agents if provider_id is None else self.provider_agents(provider_id)
+        )
+        usages = tuple(agent.last_usage for agent in agents if agent.last_usage is not None)
+        context_tokens = _sum_optional(
+            usage.context_window_used_tokens for usage in usages
+        )
+        context_capacity = _sum_optional(
+            usage.context_window_max_tokens for usage in usages
+        )
+        utilization = None
+        if context_tokens is not None and context_capacity:
+            utilization = round(context_tokens / context_capacity * 100, 1)
+        reported_cost = _sum_optional(usage.total_cost_usd for usage in usages)
+        return PaseoTokenMetrics(
+            context_tokens=context_tokens,
+            context_capacity=context_capacity,
+            context_utilization=utilization,
+            latest_input_tokens=_sum_optional(usage.input_tokens for usage in usages),
+            latest_cached_input_tokens=_sum_optional(
+                usage.cached_input_tokens for usage in usages
+            ),
+            latest_output_tokens=_sum_optional(usage.output_tokens for usage in usages),
+            reported_session_cost=(
+                round(reported_cost, 4) if reported_cost is not None else None
+            ),
+        )
+
 
 def normalize_websocket_url(value: str) -> str:
     """Normalize an HTTP or WebSocket Paseo URL."""
@@ -221,3 +298,15 @@ def _optional_number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return float(value)
+
+
+def _optional_token_count(value: Any) -> int | None:
+    number = _optional_number(value)
+    if number is None or number < 0:
+        return None
+    return int(number)
+
+
+def _sum_optional(values: Iterable[int | float | None]) -> int | float | None:
+    present = [value for value in values if value is not None]
+    return sum(present) if present else None
