@@ -1,0 +1,50 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Paseo",
+        "description": "Connect directly to the Paseo WebSocket API. Keep this endpoint on a trusted network.",
+        "data": {
+          "url": "WebSocket URL",
+          "password": "Password"
+        },
+        "data_description": {
+          "url": "The ws:// or wss:// URL reachable from Home Assistant.",
+          "password": "Optional Paseo server password."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to Paseo",
+      "invalid_auth": "Paseo rejected the password",
+      "invalid_url": "Enter a valid http(s) or ws(s) URL"
+    },
+    "abort": {
+      "already_configured": "This Paseo server is already configured"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "fleet_state": { "name": "Fleet state" },
+      "open_agents": { "name": "Open agents" },
+      "working_agents": { "name": "Working agents" },
+      "idle_agents": { "name": "Idle agents" },
+      "finished_agents": { "name": "Finished agents" },
+      "attention_agents": { "name": "Agents needing attention" },
+      "failed_agents": { "name": "Failed agents" }
+    },
+    "binary_sensor": {
+      "connected": { "name": "Connected" },
+      "attention_needed": { "name": "Attention needed" },
+      "agent_failure": { "name": "Agent failure" }
+    },
+    "event": {
+      "activity": {
+        "name": "Activity",
+        "state_attributes": {
+          "event_type": { "name": "Event type" }
+        }
+      }
+    }
+  }
+}
