@@ -12,8 +12,8 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091d690fe712d2e5fd0da0441a35f29e6a85c2 # v7.0.0
-      - uses: actions/setup-python@ece7cd6a34d7c42a2e5f8a5746afb5e36f65b0cf # v6.3.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
           cache: pip
@@ -24,14 +24,14 @@ jobs:
   hassfest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091d690fe712d2e5fd0da0441a35f29e6a85c2 # v7.0.0
-      - uses: home-assistant/actions/hassfest@f4ca62a9a6333d53516579562bd9e7d81b0372b4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: home-assistant/actions/hassfest@a7c616ce81ccda50150bf1595786c71b1883fabb
 
   hacs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091d690fe712d2e5fd0da0441a35f29e6a85c2 # v7.0.0
-      - uses: hacs/action@d556e3ca686adefed1a697dec8b8f3a639b42a95 # 22.5.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa
         with:
           category: integration
           ignore: brands
