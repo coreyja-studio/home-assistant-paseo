@@ -8,7 +8,7 @@ A local-push Home Assistant integration for watching a [Paseo](https://github.co
 - A fleet-state sensor: `quiet`, `idle`, `working`, `attention`, or `error`
 - Connection, attention, and failure binary sensors
 - Per-provider open-session and active-turn counts
-- Fleet and per-provider context usage, capacity, and utilization
+- Fleet context totals and anonymous per-session context utilization
 - Latest-turn input, cached-input, and output token snapshots
 - Reported open-session cost where a provider supplies it
 - Provider quota-window sensors with remaining percentage and reset time
@@ -20,10 +20,11 @@ An **active turn** means Paseo is currently receiving output from an agent. It i
 returns to zero while every open agent is waiting for input or has finished, even when those
 sessions remain open.
 
-Token values mirror each open agent's latest usage report. They are useful for current context
-pressure and recent activity, but they are not lifetime counters. Reported session cost is summed
-only for providers that expose a cost (currently Claude does; Codex does not). All usage entities
-contain numeric metadata only—prompts and model output remain excluded.
+Token values mirror each open agent's latest usage report. Per-session sensors make context pressure
+actionable without exposing agent titles or raw identifiers; they disappear when the session closes.
+These values are not lifetime counters. Reported session cost is summed only for providers that
+expose a cost (currently Claude does; Codex does not). All usage entities contain numeric metadata
+only—prompts and model output remain excluded.
 
 ## Installation
 

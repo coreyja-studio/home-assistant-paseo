@@ -5,6 +5,7 @@ from custom_components.paseo.models import (
     PaseoAgentUsage,
     PaseoProviderUsage,
     PaseoSnapshot,
+    anonymous_session_key,
     normalize_websocket_url,
 )
 
@@ -146,6 +147,33 @@ def test_token_metrics_are_unknown_without_usage() -> None:
     assert metrics.latest_cached_input_tokens is None
     assert metrics.latest_output_tokens is None
     assert metrics.reported_session_cost is None
+
+
+def test_session_context_is_per_agent_and_anonymous() -> None:
+    """Session utilization should preserve no raw Paseo identifier."""
+    raw_agent_id = "agent-secret-identifier"
+    usage = PaseoAgentUsage(100, 80, 20, None, 200_000, 50_000)
+    snapshot = PaseoSnapshot(
+        agents={
+            raw_agent_id: PaseoAgent(
+                raw_agent_id, "claude", "running", False, None, None, usage
+            ),
+            "hotter": PaseoAgent(
+                "hotter",
+                "codex",
+                "idle",
+                False,
+                None,
+                None,
+                PaseoAgentUsage(100, 0, 20, None, 100_000, 80_000),
+            ),
+        }
+    )
+
+    assert usage.context_utilization == 25.0
+    assert snapshot.hottest_session_context == 80.0
+    assert anonymous_session_key(raw_agent_id) == anonymous_session_key(raw_agent_id)
+    assert raw_agent_id not in anonymous_session_key(raw_agent_id)
 
 
 def test_normalize_websocket_url() -> None:
