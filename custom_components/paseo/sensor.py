@@ -8,12 +8,13 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import PaseoConfigEntry
 from .coordinator import PaseoCoordinator
 from .entity import PaseoEntity, PaseoProviderEntity
-from .models import PaseoSnapshot
+from .models import PaseoSnapshot, anonymous_session_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,42 +98,12 @@ HOST_SENSORS = (
         "USD",
         2,
     ),
-)
-
-
-@dataclass(frozen=True, slots=True)
-class PaseoUsageSensorDefinition:
-    """Definition of a provider usage snapshot sensor."""
-
-    key: str
-    name: str
-    icon: str
-    unit: str
-    precision: int | None = None
-
-
-PROVIDER_USAGE_SENSORS = (
-    PaseoUsageSensorDefinition("context_tokens", "Context tokens", "mdi:brain", "tokens"),
-    PaseoUsageSensorDefinition(
-        "context_capacity", "Context capacity", "mdi:brain-freeze", "tokens"
-    ),
-    PaseoUsageSensorDefinition(
-        "context_utilization", "Context utilization", "mdi:gauge", "%", 1
-    ),
-    PaseoUsageSensorDefinition(
-        "latest_input_tokens", "Latest-turn input", "mdi:arrow-collapse-down", "tokens"
-    ),
-    PaseoUsageSensorDefinition(
-        "latest_cached_input_tokens",
-        "Latest-turn cached input",
-        "mdi:database-clock",
-        "tokens",
-    ),
-    PaseoUsageSensorDefinition(
-        "latest_output_tokens", "Latest-turn output", "mdi:arrow-collapse-up", "tokens"
-    ),
-    PaseoUsageSensorDefinition(
-        "reported_session_cost", "Reported session cost", "mdi:currency-usd", "USD", 2
+    PaseoSensorDefinition(
+        "hottest_session_context",
+        "mdi:thermometer-alert",
+        lambda data: data.hottest_session_context,
+        "%",
+        1,
     ),
 )
 
@@ -146,44 +117,69 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
     async_add_entities(PaseoHostSensor(coordinator, definition) for definition in HOST_SENSORS)
 
-    seen: set[str] = set()
+    seen_providers: set[str] = set()
+    session_entities: dict[str, PaseoSessionContextSensor] = {}
+    registry = er.async_get(hass)
+    session_unique_id_prefix = f"{coordinator.data.server_id}_session_"
+    current_session_unique_ids = {
+        f"{session_unique_id_prefix}{anonymous_session_key(agent.agent_id)}_context"
+        for agent in coordinator.data.open_agents
+        if agent.last_usage is not None
+        and agent.last_usage.context_utilization is not None
+    }
+    for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            registry_entry.unique_id.startswith(session_unique_id_prefix)
+            and registry_entry.unique_id not in current_session_unique_ids
+        ):
+            registry.async_remove(registry_entry.entity_id)
 
-    def add_provider_entities() -> None:
+    async def remove_session_entity(entity: PaseoSessionContextSensor) -> None:
+        entity_id = entity.entity_id
+        await entity.async_remove()
+        if entity_id is not None and registry.async_get(entity_id) is not None:
+            registry.async_remove(entity_id)
+
+    def sync_dynamic_entities() -> None:
         entities: list[SensorEntity] = []
         for provider_id in coordinator.data.provider_ids:
             for metric in ("open", "working"):
                 unique_key = f"provider:{provider_id}:{metric}"
-                if unique_key not in seen:
-                    seen.add(unique_key)
+                if unique_key not in seen_providers:
+                    seen_providers.add(unique_key)
                     entities.append(PaseoProviderCountSensor(coordinator, provider_id, metric))
-            if any(
-                agent.last_usage is not None
-                for agent in coordinator.data.provider_agents(provider_id)
-            ):
-                for definition in PROVIDER_USAGE_SENSORS:
-                    unique_key = f"usage:{provider_id}:{definition.key}"
-                    if unique_key not in seen:
-                        seen.add(unique_key)
-                        entities.append(
-                            PaseoProviderUsageSensor(
-                                coordinator, provider_id, definition
-                            )
-                        )
             usage = coordinator.data.usage.get(provider_id)
             if usage is None:
                 continue
             for window in usage.windows:
                 unique_key = f"quota:{provider_id}:{window.window_id}"
-                if unique_key not in seen:
-                    seen.add(unique_key)
+                if unique_key not in seen_providers:
+                    seen_providers.add(unique_key)
                     entities.append(
                         PaseoQuotaSensor(coordinator, provider_id, window.window_id)
                     )
+
+        current_session_keys: set[str] = set()
+        for agent in coordinator.data.open_agents:
+            session_key = anonymous_session_key(agent.agent_id)
+            current_session_keys.add(session_key)
+            usage = agent.last_usage
+            if usage is None or usage.context_utilization is None:
+                continue
+            if session_key not in session_entities:
+                entity = PaseoSessionContextSensor(coordinator, agent.agent_id)
+                session_entities[session_key] = entity
+                entities.append(entity)
+
+        for session_key in session_entities.keys() - current_session_keys:
+            entity = session_entities.pop(session_key)
+            hass.async_create_task(remove_session_entity(entity))
+
         if entities:
             async_add_entities(entities)
 
-    add_provider_entities()
-    entry.async_on_unload(coordinator.async_add_listener(add_provider_entities))
+    sync_dynamic_entities()
+    entry.async_on_unload(coordinator.async_add_listener(sync_dynamic_entities))
 
 
 class PaseoHostSensor(PaseoEntity, SensorEntity):
@@ -232,30 +228,52 @@ class PaseoProviderCountSensor(PaseoProviderEntity, SensorEntity):
         return len(agents)
 
 
-class PaseoProviderUsageSensor(PaseoProviderEntity, SensorEntity):
-    """A provider's current numeric usage snapshot."""
+class PaseoSessionContextSensor(PaseoEntity, SensorEntity):
+    """Current context utilization for one anonymous agent session."""
 
+    _attr_native_unit_of_measurement = "%"
     _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+    _attr_icon = "mdi:brain"
 
-    def __init__(
-        self,
-        coordinator: PaseoCoordinator,
-        provider_id: str,
-        definition: PaseoUsageSensorDefinition,
-    ) -> None:
-        """Initialize a provider usage sensor."""
-        super().__init__(coordinator, provider_id, f"usage_{definition.key}")
-        self._definition = definition
-        self._attr_name = definition.name
-        self._attr_icon = definition.icon
-        self._attr_native_unit_of_measurement = definition.unit
-        self._attr_suggested_display_precision = definition.precision
+    def __init__(self, coordinator: PaseoCoordinator, agent_id: str) -> None:
+        """Initialize an anonymous session context sensor."""
+        self.agent_id = agent_id
+        session_key = anonymous_session_key(agent_id)
+        agent = coordinator.data.agents[agent_id]
+        provider_name = coordinator.data.provider_name(agent.provider_id)
+        super().__init__(coordinator, f"session_{session_key}_context")
+        self._attr_name = f"{provider_name} session {session_key} context"
 
     @property
-    def native_value(self) -> int | float | None:
-        """Return the current provider usage value."""
-        metrics = self.coordinator.data.token_metrics(self.provider_id)
-        return getattr(metrics, self._definition.key)
+    def _usage(self) -> Any:
+        agent = self.coordinator.data.agents.get(self.agent_id)
+        if agent is None or agent.status == "closed":
+            return None
+        return agent.last_usage
+
+    @property
+    def native_value(self) -> float | None:
+        """Return this session's current context utilization."""
+        usage = self._usage
+        return usage.context_utilization if usage is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return numeric usage without exposing session content or raw identifiers."""
+        agent = self.coordinator.data.agents.get(self.agent_id)
+        usage = self._usage
+        if agent is None or usage is None:
+            return {}
+        return {
+            "provider": agent.provider_id,
+            "context_tokens": usage.context_window_used_tokens,
+            "context_capacity": usage.context_window_max_tokens,
+            "latest_input_tokens": usage.input_tokens,
+            "latest_cached_input_tokens": usage.cached_input_tokens,
+            "latest_output_tokens": usage.output_tokens,
+            "reported_session_cost": usage.total_cost_usd,
+        }
 
 
 class PaseoQuotaSensor(PaseoProviderEntity, SensorEntity):

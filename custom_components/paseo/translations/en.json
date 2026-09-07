@@ -38,7 +38,8 @@
       "latest_input_tokens": { "name": "Latest-turn input" },
       "latest_cached_input_tokens": { "name": "Latest-turn cached input" },
       "latest_output_tokens": { "name": "Latest-turn output" },
-      "reported_session_cost": { "name": "Reported session cost" }
+      "reported_session_cost": { "name": "Reported session cost" },
+      "hottest_session_context": { "name": "Hottest session context" }
     },
     "binary_sensor": {
       "connected": { "name": "Connected" },

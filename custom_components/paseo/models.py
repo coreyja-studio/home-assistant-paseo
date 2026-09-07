@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -31,6 +32,16 @@ class PaseoAgentUsage:
     total_cost_usd: float | None
     context_window_max_tokens: int | None
     context_window_used_tokens: int | None
+
+    @property
+    def context_utilization(self) -> float | None:
+        """Return this session's current context utilization."""
+        if self.context_window_used_tokens is None or not self.context_window_max_tokens:
+            return None
+        return round(
+            self.context_window_used_tokens / self.context_window_max_tokens * 100,
+            1,
+        )
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> PaseoAgentUsage:
@@ -270,6 +281,17 @@ class PaseoSnapshot:
             ),
         )
 
+    @property
+    def hottest_session_context(self) -> float | None:
+        """Return the highest context utilization among open sessions."""
+        utilizations = [
+            agent.last_usage.context_utilization
+            for agent in self.open_agents
+            if agent.last_usage is not None
+            and agent.last_usage.context_utilization is not None
+        ]
+        return max(utilizations, default=None)
+
 
 def normalize_websocket_url(value: str) -> str:
     """Normalize an HTTP or WebSocket Paseo URL."""
@@ -288,6 +310,11 @@ def normalize_websocket_url(value: str) -> str:
 def utc_now_iso() -> str:
     """Return the current UTC time in ISO 8601 form."""
     return datetime.now().astimezone().isoformat()
+
+
+def anonymous_session_key(agent_id: str) -> str:
+    """Return a stable anonymous key without exposing Paseo's raw agent ID."""
+    return hashlib.sha256(agent_id.encode()).hexdigest()[:8]
 
 
 def _optional_string(value: Any) -> str | None:
